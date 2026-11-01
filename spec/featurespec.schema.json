@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-cad.local/spec/featurespec.schema.json",
+  "title": "FeatureSpec IR",
+  "description": "唯一写入 Creo 内核的输入（ADR-012）。LLM 只允许输出本 Schema 约束的受控 JSON。长度单位一律毫米（mm），角度单位度（deg）。语法层约束由本 Schema 表达；跨字段语义约束（引用存在性、op 组合合法性、编辑目标解析）由 spec/rust 校验器执行，错误码 FS1xx。",
+  "type": "object",
+  "required": ["model", "type", "features"],
+  "additionalProperties": false,
+  "properties": {
+    "model": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,31}$",
+      "description": "模型名（.prt/.asm 主名），字母开头，最长 32 字符。"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["part", "assembly"],
+      "description": "模型类型。v1 执行器仅实现 part；assembly 在 P3（ROADMAP P3.1）落地。"
+    },
+    "features": {
+      "type": "array",
+      "minItems": 1,
+      "description": "特征按建模顺序排列；只允许引用更早的特征。",
+      "items": { "$ref": "#/$defs/feature" }
+    },
+    "edits": {
+      "type": "array",
+      "description": "增量修改：只改参数，后端按 id 定位特征后 Regenerate，不重建模型（G3）。",
+      "items": { "$ref": "#/$defs/edit" }
+    }
+  },
+  "$defs": {
+    "featureId": {
+      "type": "string",
+      "pattern": "^F[0-9]{3,}$",
+      "description": "特征稳定标识（我们维护的语义 id，与 Creo 内部 ProModelitem.id 由映射表双向对应）。"
+    },
+    "positive": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "feature": {
+      "type": "object",
+      "required": ["id", "op"],
+      "oneOf": [
+        { "$ref": "#/$defs/sketch" },
+        { "$ref": "#/$defs/extrude" },
+        { "$ref": "#/$defs/hole" }
+      ]
+    },
+    "sketch": {
+      "type": "object",
+      "required": ["id", "op", "plane", "profile", "dims"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/featureId" },
+        "op": { "const": "sketch" },
+        "plane": {
+          "type": "string",
+          "enum": ["TOP", "FRONT", "RIGHT", "BOTTOM", "BACK", "LEFT"],
+          "description": "草绘基准面（标准datum plane 名）。"
+        },
+        "profile": {
+          "type": "string",
+          "enum": ["rect"],
+          "description": "v1 仅支持矩形轮廓；circle/polygon 在 P1 后按需扩展。"
+        },
+        "dims": {
+          "type": "object",
+          "required": ["w", "h"],
+          "additionalProperties": false,
+          "properties": {
+            "w": { "$ref": "#/$defs/positive" },
+            "h": { "$ref": "#/$defs/positive" }
+          }
+        }
+      }
+    },
+    "extrude": {
+      "type": "object",
+      "required": ["id", "op", "sketch", "depth", "side"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/featureId" },
+        "op": { "const": "extrude" },
+        "sketch": {
+          "type": "string",
+          "pattern": "^F[0-9]{3,}$",
+          "description": "引用同 spec 内的 sketch 特征 id。"
+        },
+        "depth": { "$ref": "#/$defs/positive" },
+        "side": {
+          "type": "string",
+          "enum": ["symmetric", "one_side"],
+          "description": "symmetric：深度对称分布；one_side：自草绘面单向拉伸。"
+        }
+      }
+    },
+    "hole": {
+      "type": "object",
+      "required": ["id", "op", "on", "dia"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/featureId" },
+        "op": { "const": "hole" },
+        "on": {
+          "type": "string",
+          "pattern": "^F[0-9]{3,}\\.face\\[[a-z0-9_]+\\]$",
+          "description": "拓扑引用：必须带面名，如 F002.face[top]（由 Rust 特征 ID 映射表解析，LLM 永不猜 face index）。"
+        },
+        "dia": { "$ref": "#/$defs/positive" },
+        "pattern": { "$ref": "#/$defs/pattern" }
+      }
+    },
+    "pattern": {
+      "type": "object",
+      "required": ["type", "n", "pitch"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["rect"],
+          "description": "v1 仅矩形阵列；P3（ROADMAP P3.2）扩展圆阵等。"
+        },
+        "n": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 2 },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "两方向实例数，每向 ≥ 2（1 向即无阵列，应直接建单个 hole）。"
+        },
+        "pitch": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/positive" },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "edit": {
+      "type": "object",
+      "required": ["target", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string",
+          "pattern": "^F[0-9]{3,}(\\.dims\\.[wh]|\\.depth|\\.dia)$",
+          "description": "可编辑参数目标：sketch→dims.w/dims.h；extrude→depth；hole→dia。同一目标在一个文档内只允许出现一次。"
+        },
+        "value": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    }
+  }
+}

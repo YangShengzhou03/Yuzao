@@ -1,0 +1,17 @@
+{
+  "model": "plate_with_holes",
+  "type": "part",
+  "features": [
+    { "id": "F001", "op": "sketch",  "plane": "TOP", "profile": "rect",
+      "dims": { "w": 120, "h": 80 } },
+    { "id": "F002", "op": "extrude", "sketch": "F001", "depth": 12,
+      "side": "symmetric" },
+    { "id": "F003", "op": "hole",    "on": "F002.face[top]",
+      "dia": 8.0, "pattern": { "type": "rect", "n": [2, 2], "pitch": [80, 40] } },
+    { "id": "F004", "op": "hole",    "on": "F002.face[bottom]", "dia": 5.0 }
+  ],
+  "edits": [
+    { "target": "F003.dia", "value": 9.0 },
+    { "target": "F002.depth", "value": 14.0 }
+  ]
+}

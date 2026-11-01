@@ -1,0 +1,41 @@
+# build output
+build/
+dist/
+target/
+out/
+app/src-tauri/gen/
+
+# agent workspace
+.workbuddy/
+
+# node / rust
+node_modules/
+*.node
+
+# native build artifacts
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.exp
+native/**/probe_otk.exe
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# local outputs
+native/work/
+native/**/work/
+projects/
+*.log
+*.usda
+*.prt
+*.prt.*
+*.asm
+*.step
+*.stl

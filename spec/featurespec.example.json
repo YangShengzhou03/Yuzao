@@ -1,0 +1,15 @@
+{
+  "model": "base_plate",
+  "type": "part",
+  "features": [
+    { "id": "F001", "op": "sketch",  "plane": "TOP", "profile": "rect",
+      "dims": { "w": 100, "h": 60 } },
+    { "id": "F002", "op": "extrude", "sketch": "F001", "depth": 10,
+      "side": "symmetric" },
+    { "id": "F003", "op": "hole",    "on": "F002.face[top]",
+      "dia": 6.0, "pattern": { "type": "rect", "n": [2, 2], "pitch": [80, 40] } }
+  ],
+  "edits": [
+    { "target": "F003.dia", "value": 7.0 }
+  ]
+}
