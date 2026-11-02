@@ -23,6 +23,8 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 featurespec = { path = "../../spec/rust" }
+# ponytail: 用 native-tls（Windows 走系统 schannel，无需本地 OpenSSL）；rustls 需 aws-lc-rs 未在离线缓存中。
+reqwest = { version = "0.13", default-features = false, features = ["json", "native-tls"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

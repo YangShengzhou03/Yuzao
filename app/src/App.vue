@@ -8,6 +8,7 @@ import CommandLine from "./components/CommandLine.vue";
 import SidePanel from "./components/SidePanel.vue";
 import StatusBar from "./components/StatusBar.vue";
 import PreferencesDialog from "./components/PreferencesDialog.vue";
+import AiSettingsDialog from "./components/AiSettingsDialog.vue";
 
 const { fullscreen, boot, shutdown } = useCad();
 
@@ -31,6 +32,7 @@ onBeforeUnmount(shutdown);
 
     <StatusBar />
     <PreferencesDialog />
+    <AiSettingsDialog />
   </div>
 </template>
 

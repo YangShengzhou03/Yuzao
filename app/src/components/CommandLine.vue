@@ -11,7 +11,7 @@ const { input, submitCommand, onInputKey } = useCad();
     <el-input
       v-model="input"
       class="cmd-input"
-      placeholder="输入指令或粘贴 FeatureSpec JSON，回车执行（向上/向下翻历史，help 查看命令）"
+      placeholder="输入自然语言描述零件、指令或粘贴 FeatureSpec JSON，回车执行（↑/↓ 翻历史，help 查看命令）"
       @keydown="onInputKey"
     />
     <el-button type="primary" @click="submitCommand(input)">发送</el-button>

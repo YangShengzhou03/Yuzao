@@ -10,6 +10,7 @@ const {
   featureAnchor,
   toolbarStyle,
   aiPrompt,
+  aiBusy,
   mountViewport,
   unmountViewport,
   applyFeaturePrompt,
@@ -41,9 +42,16 @@ onBeforeUnmount(unmountViewport);
         size="small"
         class="ft-input"
         placeholder="描述怎么改，如：孔径改为 12"
+        :disabled="aiBusy"
         @keydown.enter="applyFeaturePrompt"
       />
-      <el-button type="primary" size="small" class="ft-go" @click="applyFeaturePrompt">
+      <el-button
+        type="primary"
+        size="small"
+        class="ft-go"
+        :loading="aiBusy"
+        @click="applyFeaturePrompt"
+      >
         AI 修改
       </el-button>
     </div>

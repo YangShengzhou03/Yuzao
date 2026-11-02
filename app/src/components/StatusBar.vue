@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import { useCad } from "../state/cad";
 
-const { cursor, unit, view, viewLabel, modelName, featureCount, selectedText } = useCad();
+const {
+  cursor,
+  unit,
+  view,
+  viewLabel,
+  modelName,
+  featureCount,
+  selectedText,
+  aiSummary,
+  openAiSettings,
+} = useCad();
 </script>
 
 <template>
@@ -20,6 +30,10 @@ const { cursor, unit, view, viewLabel, modelName, featureCount, selectedText } =
     <el-divider direction="vertical" />
     <span class="st-item">选中 <b>{{ selectedText }}</b></span>
     <span class="st-spacer" />
+    <el-tooltip content="点击配置 AI 供应商与提示词（工具 → AI 服务设置）" placement="top" :show-after="600">
+      <button class="st-item st-ai" @click="openAiSettings">{{ aiSummary }}</button>
+    </el-tooltip>
+    <el-divider direction="vertical" />
     <el-tooltip
       content="视图层为快照渲染（ADR-011）；连接 Creo 原生内核写入 .prt 属 ROADMAP P2"
       placement="top"
@@ -63,6 +77,22 @@ const { cursor, unit, view, viewLabel, modelName, featureCount, selectedText } =
 }
 .st-spacer {
   margin-left: auto;
+}
+.st-ai {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: var(--cad-muted);
+  font-size: 12px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-ai:hover {
+  color: var(--cad-accent);
+  text-decoration: underline;
 }
 .statusbar :deep(.el-divider--vertical) {
   height: 14px;

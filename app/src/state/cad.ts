@@ -4,6 +4,13 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { Viewport3D, viewLabel, type ViewName } from "../viewport/scene3d";
 import { DEFAULT_SPEC, buildModelFromSpec, type FeatureNode } from "../model/model";
 import { useWindowFrame } from "../frame/useWindowFrame";
+import {
+  llmApi,
+  providerDisplayName,
+  type GenerateOutcome,
+  type Prompt,
+  type Provider,
+} from "../ai/llm";
 
 export interface MenuItem {
   label: string;
@@ -36,6 +43,9 @@ export interface EditableParam {
 }
 
 const BLANK_SPEC = `{\n  "model": "untitled",\n  "type": "part",\n  "features": []\n}`;
+/** 当前选中的供应商 / 提示词 id 存 localStorage（配置本体在 Rust 侧的 app_config_dir）。 */
+const AI_PROVIDER_KEY = "yuzao.ai.providerId";
+const AI_PROMPT_KEY = "yuzao.ai.promptId";
 const VIEW_BUTTONS: ViewName[] = ["iso", "front", "top", "right"];
 const UNIT_OPTIONS: Array<{ value: "mm" | "inch"; label: string }> = [
   { value: "mm", label: "毫米 mm" },
@@ -88,6 +98,14 @@ function createCad() {
 
   // ---- 悬浮 AI 工具条 ----
   const aiPrompt = ref("");
+
+  // ---- AI 服务（供应商 / 提示词 / 生成） ----
+  const providers = ref<Provider[]>([]);
+  const prompts = ref<Prompt[]>([]);
+  const activeProviderId = ref<string | null>(null);
+  const activePromptId = ref<string>("");
+  const aiOpen = ref(false);
+  const aiBusy = ref(false);
 
   // ---- 校验 / 首选项 ----
   const running = ref(false);
@@ -298,34 +316,103 @@ function createCad() {
     }
   }
 
+  // ---- AI 服务：加载 / 生成 ----
+
+  /** 拉取供应商与提示词库，并恢复上次的选择（首次默认第一项）。 */
+  async function loadAi(): Promise<void> {
+    try {
+      const [providerStore, promptStore] = await Promise.all([
+        llmApi.listProviders(),
+        llmApi.listPrompts(),
+      ]);
+      providers.value = providerStore.providers;
+      prompts.value = promptStore.prompts;
+
+      const savedProvider = localStorage.getItem(AI_PROVIDER_KEY);
+      activeProviderId.value = providers.value.some((p) => p.id === savedProvider)
+        ? savedProvider
+        : (providers.value[0]?.id ?? null);
+
+      const savedPrompt = localStorage.getItem(AI_PROMPT_KEY);
+      activePromptId.value =
+        (prompts.value.some((p) => p.id === savedPrompt)
+          ? savedPrompt
+          : prompts.value[0]?.id) ?? "";
+    } catch (e) {
+      say(`读取 AI 配置失败：${String(e)}`, "system");
+    }
+  }
+
+  function openAiSettings(): void {
+    aiOpen.value = true;
+  }
+
+  function setActiveProvider(id: string): void {
+    activeProviderId.value = id;
+    localStorage.setItem(AI_PROVIDER_KEY, id);
+  }
+
+  function setActivePrompt(id: string): void {
+    activePromptId.value = id;
+    localStorage.setItem(AI_PROMPT_KEY, id);
+  }
+
   /**
-   * 悬浮条里的「AI 修改」：LLM 未接入前，本地按关键字 + 数字落到对应参数。
-   * ponytail: 关键词匹配是最小可用实现，P5 接入 LLM 后换成 FeatureSpec 语义解析。
+   * 用指定提示词 + 当前供应商跑一次 LLM。
+   * `current_spec` 始终传当前 FeatureSpec：生成类模板不含 `{spec}` 占位符，传了也无副作用。
    */
-  function applyFeaturePrompt(): void {
+  async function runAi(text: string, prompt: Prompt): Promise<boolean> {
+    const provider = activeProvider.value;
+    if (!provider) {
+      flash("请先在「工具 → AI 服务设置」中添加供应商");
+      aiOpen.value = true;
+      return false;
+    }
+
+    aiBusy.value = true;
+    say(`AI 生成中…（${providerDisplayName(provider)} · ${prompt.name}）`, "system");
+    sideTab.value = "log";
+    try {
+      const outcome: GenerateOutcome = await llmApi.run({
+        provider_id: provider.id,
+        prompt_id: prompt.id,
+        input: text,
+        current_spec: specText.value,
+      });
+      if (outcome.ok) {
+        pushSpec(outcome.spec);
+        applySpec(outcome.spec);
+        selectFeature(null);
+        say(
+          `AI 已产出合法 FeatureSpec（第 ${outcome.attempts} 次尝试通过校验），预览已按新 spec 重建。`,
+          "assistant"
+        );
+        flash("AI 生成完成，已应用并重建预览");
+        return true;
+      }
+      say(
+        `AI 未能产出合法 FeatureSpec（已重试 ${outcome.attempts} 次）：\n${outcome.errors.join("\n")}`,
+        "assistant"
+      );
+      ElMessage.error("AI 生成未通过 FeatureSpec 校验，详见会话记录");
+      return false;
+    } catch (e) {
+      say(`AI 调用失败：${String(e)}`, "assistant");
+      ElMessage.error("AI 调用失败");
+      return false;
+    } finally {
+      aiBusy.value = false;
+    }
+  }
+
+  /** 悬浮条的「AI 修改」：固定走 `edit_part` 提示词（用户删了则退回当前选中项）。 */
+  async function applyFeaturePrompt(): Promise<void> {
     const text = aiPrompt.value.trim();
-    if (!text || !selected.value) return;
-    const params = editableParams.value;
-    if (!params.length) {
-      flash(`${selected.value.id} 没有可编辑参数`);
-      return;
-    }
-    const num = Number(text.match(/-?\d+(?:\.\d+)?/)?.[0]);
-    if (!Number.isFinite(num) || num <= 0) {
-      flash("LLM 尚未接入（ROADMAP P5）；当前可识别数字改参，例如「孔径改为 12」");
-      return;
-    }
-    const lower = text.toLowerCase();
-    const rules: Array<[string, string[]]> = [
-      [".dia", ["孔", "直径", "dia", "大小"]],
-      [".depth", ["深", "厚", "depth"]],
-      [".dims.w", ["宽", "width"]],
-      [".dims.h", ["高", "height"]],
-    ];
-    const hit = rules.find(([, words]) => words.some((w) => lower.includes(w)));
-    const param = (hit && params.find((p) => p.target.endsWith(hit[0]))) || params[0];
-    aiPrompt.value = "";
-    onParamEdit(param.target, num);
+    const prompt = prompts.value.find((p) => p.id === "edit_part") ?? activePromptObj.value ?? null;
+    if (!text || !prompt) return;
+    const applied = await runAi(text, prompt);
+    // 失败时保留输入，便于用户改词重试。
+    aiPrompt.value = applied ? "" : text;
   }
 
   // ---- 命令行 ----
@@ -335,11 +422,11 @@ function createCad() {
     history.push(text);
     historyIndex = history.length;
     messages.value.push({ role: "user", text, time: now() });
-    runCommand(text);
     input.value = "";
+    void runCommand(text);
   }
 
-  function runCommand(text: string): void {
+  async function runCommand(text: string): Promise<void> {
     const lower = text.toLowerCase();
     const viewMap: Array<[string, ViewName]> = [
       ["等轴测", "iso"],
@@ -365,6 +452,7 @@ function createCad() {
           "文件：新建 Ctrl+N / 打开 Ctrl+O / 保存 Ctrl+S",
           "编辑：撤销 Ctrl+Z / 重做 Ctrl+Y",
           "特征：校验（粘贴 JSON 后回车） / 重建 / 单位 mm|inch",
+          "AI：直接输入自然语言即按当前提示词生成，如「一块 100x60x10 的板，均布 4 个 φ8 通孔」",
           "快捷键：F 适应 · 1/2/3/4 等轴测/前视/顶视/右视 · W 线框 · G 网格 · X 坐标轴 · Esc 取消选中",
           "其他：清空 / 帮助",
         ].join("\n")
@@ -419,7 +507,20 @@ function createCad() {
       void validateSpec();
       return;
     }
-    say(`已记录指令「${text}」。自然语言转 FeatureSpec 的 LLM 调度尚未接入（ROADMAP P5）；当前支持上述命令与 JSON 校验。`);
+    if (lower === "ai" || lower === "ai 服务" || lower === "ai 服务设置") {
+      openAiSettings();
+      return;
+    }
+    // 未匹配的已知识别命令 → 视为自然语言建模指令交给 LLM
+    const prompt = activePromptObj.value;
+    if (!prompt) {
+      say(
+        `已记录「${text}」。自然语言建模需要先在「工具 → AI 服务设置」中添加供应商与提示词。`,
+        "system"
+      );
+      return;
+    }
+    await runAi(text, prompt);
   }
 
   function onInputKey(e: KeyboardEvent): void {
@@ -581,6 +682,7 @@ function createCad() {
   function boot(): void {
     window.addEventListener("keydown", onGlobalKey);
     say(WELCOME, "system");
+    void loadAi();
   }
 
   function shutdown(): void {
@@ -641,6 +743,18 @@ function createCad() {
     },
   ]);
 
+  const activeProvider = computed<Provider | null>(
+    () => providers.value.find((p) => p.id === activeProviderId.value) ?? null
+  );
+  const activePromptObj = computed<Prompt | null>(
+    () => prompts.value.find((p) => p.id === activePromptId.value) ?? null
+  );
+
+  const aiSummary = computed<string>(() => {
+    if (!activeProvider.value) return "AI 未配置";
+    return `AI ${providerDisplayName(activeProvider.value)} · ${activePromptObj.value?.name ?? "—"}`;
+  });
+
   const menuGroups = computed<MenuGroup[]>(() => [
     {
       name: "文件",
@@ -691,6 +805,7 @@ function createCad() {
         { label: "单位 mm", active: unit.value === "mm", action: () => { unit.value = "mm"; flash("单位：mm"); } },
         { label: "单位 inch", active: unit.value === "inch", action: () => { unit.value = "inch"; flash("单位：inch"); } },
         { label: "清空会话", action: () => { messages.value = []; } },
+        { label: "AI 服务设置…", action: openAiSettings },
       ],
     },
     {
@@ -732,12 +847,15 @@ function createCad() {
     sideTab, sideOpen, messages, input,
     // 悬浮 AI 工具条
     aiPrompt, toolbarStyle,
+    // AI 服务
+    providers, prompts, activeProviderId, activePromptId, aiOpen, aiBusy, aiSummary,
+    loadAi, openAiSettings, setActiveProvider, setActivePrompt, runAi,
     // 校验 / 首选项
     running, prefOpen,
     // 全屏顶栏
     menubarOpen, onTopbarEnter, onTopbarLeave, onMenuOpen, onMenuClose, onMenuSelect, revealMenubar,
     // 派生数据
-    selectedText, editableParams, treeData, menuGroups,
+    selectedText, editableParams, treeData, menuGroups, activeProvider, activePromptObj,
     // 动作
     newModel, openModel, onFilePicked, onFilePickerReady, saveModel, undo, redo, openPrefs, resetPrefs,
     selectFeature, opLabel, onNodeClick, applyView, fitView, validateSpec, rebuild,
