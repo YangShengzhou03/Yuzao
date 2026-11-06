@@ -62,6 +62,9 @@ extern "C" int aicad_bridge_connect(const char *text_dir)
         g_conn = NULL;
         return -5;
     }
+    /* 编译器无法从 xcatch 宏推断穷尽性；此返回不可达，仅为消除 C4715 */
+    g_conn = NULL;
+    return -6;
 }
 
 extern "C" int aicad_bridge_disconnect(int dwell_sec)

@@ -1,0 +1,79 @@
+﻿probe_feat.c
+   Creating library probe_feat.lib and object probe_feat.exp
+PROBE_EXIT=0
+feat_build.c
+feat_build.c(1103): warning C4189: 'random': local variable is initialized but not referenced
+Generating Code...
+Compiling...
+otk_bridge.cpp
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1820): warning C4100: 'ToMdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1820): warning C4100: 'FromMdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1822): warning C4100: 'ToMdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1822): warning C4100: 'FromMdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1824): warning C4100: 'ToMdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1824): warning C4100: 'FromMdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1826): warning C4100: 'Mdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1828): warning C4100: 'Mdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1835): warning C4100: 'Descr': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1837): warning C4100: 'Descr': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1839): warning C4100: 'ToMdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1839): warning C4100: 'FromMdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1841): warning C4100: 'ToMdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1841): warning C4100: 'FromMdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1843): warning C4100: 'ToMdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1843): warning C4100: 'FromMdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1845): warning C4100: 'Mdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1847): warning C4100: 'Descr': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1849): warning C4100: 'Mdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1851): warning C4100: 'Descr': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1853): warning C4100: 'Mdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1855): warning C4100: 'Descr': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1857): warning C4100: 'Mdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1859): warning C4100: 'Mdl': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1861): warning C4100: 'Value': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1861): warning C4100: 'Name': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1861): warning C4100: 'Owner': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1863): warning C4100: 'Value': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1863): warning C4100: 'Param': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcModel.h(1865): warning C4100: 'Param': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(673): warning C4100: 'Feat': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(675): warning C4100: 'Feat': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(677): warning C4100: 'Feat': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(679): warning C4100: 'Feat': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(681): warning C4100: 'Feat': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(683): warning C4100: 'Feat': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(685): warning C4100: 'Feat': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(690): warning C4100: 'Type': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(689): warning C4100: 'To': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(688): warning C4100: 'From': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(696): warning C4100: 'Value': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(695): warning C4100: 'Name': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(694): warning C4100: 'Owner': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(701): warning C4100: 'Value': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(700): warning C4100: 'Param': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcFeature.h(705): warning C4100: 'Param': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(412): warning C4100: 'StartFeature': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(412): warning C4100: 'Sld': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(414): warning C4100: 'WasSuccessful': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(414): warning C4100: 'StartFeature': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(414): warning C4100: 'Sld': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(416): warning C4100: 'ConvertNumbers': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(416): warning C4100: 'Sld': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(418): warning C4100: 'ConvertNumbers': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(418): warning C4100: 'Sld': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(420): warning C4100: 'FeatId': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(420): warning C4100: 'Sld': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(422): warning C4100: 'Feat': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(422): warning C4100: 'Sld': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(424): warning C4100: 'FeatId': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSolid.h(424): warning C4100: 'Sld': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSession.h(779): warning C4100: 'Path': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSession.h(781): warning C4100: 'NewWindow': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSession.h(789): warning C4100: 'Container': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSession.h(791): warning C4100: 'Container': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSession.h(793): warning C4100: 'Container': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSession.h(795): warning C4100: 'Container': unreferenced parameter
+D:/Program Files/PTC/Creo 12.4.0.0\Common Files\otk\otk_cpp\include\pfcSession.h(797): warning C4100: 'Descr': unreferenced parameter
+Generating Code...
+   Creating library feat_build.lib and object feat_build.exp
+BUILD_EXIT=0

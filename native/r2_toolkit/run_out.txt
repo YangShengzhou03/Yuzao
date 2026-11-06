@@ -1,0 +1,18 @@
+﻿[aicad] edit[0] target=F003.dia value=9（P2 编辑通道执行，本构建器跳过）
+[aicad] edit[1] target=F002.depth value=14（P2 编辑通道执行，本构建器跳过）
+[aicad] spec 校验通过：model=plate_with_holes, sketch=F001(120x80@TOP), extrude=F002(depth=12,symmetric), holes=2, edits=2
+[bridge] OTK Connect(text=D:/Program Files\PTC\Creo 12.4.0.0\Common Files\text, dwell=120) ...
+run_build.bat : [bridge] FAIL: XToolkitError -> pfcExceptions::XToolkitNotFound
+所在位置 行:15 字符: 1625
++ ... M = 'dumb'; & ".\run_build.bat" "d:\code\Yuzao\spec\examples\plate_wi ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([bridge] FAIL: ...ToolkitNotFound:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+{
+  Message : "pfcExceptions::XToolkitNotFound"
+  MethodName : "pfcAsyncConnection::AsyncConnection::Connect"
+  ToolkitFunctionName : "ProEngineerConnect"
+}
+[aicad:error code=FS209] OTK 桥连接失败（C API 对 rpc_input 恒为 -4，见 r1_otk/README.md）
+EXIT=3

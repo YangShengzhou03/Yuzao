@@ -44,10 +44,13 @@
 #include "ProFeature.h"
 #include "ProFeatType.h"
 #include "ProFeatForm.h"
+#include "ProBodyOpts.h"
 #include "ProExtrude.h"
 #include "ProStdSection.h"
 #include "ProSection.h"
 #include "ProHole.h"
+#include "ProDtmCsys.h"
+#include "ProDtmPln.h"
 #include "ProSurfacedata.h"
 #include "ProGeomitemdata.h"
 #include "ProTKRunTime.h"
@@ -91,6 +94,23 @@ static void aicad_error(const char *code, const char *fmt, ...)
     vprintf(fmt, ap);
     va_end(ap);
     printf("\n");
+}
+
+/* ProErrorlist 是裸结构（ProItemerr.h:25）：直接读，无需访问器。
+   特征创建/重定义失败时 p_errors 里有 Creo 给的真实原因，必须打出来。 */
+static void dump_pro_errors(ProErrorlist *errors)
+{
+    if (!errors || errors->error_number <= 0) {
+        aicad_info("pro_errors: （空）");
+        return;
+    }
+    aicad_info("pro_errors: 共 %d 条", errors->error_number);
+    for (int i = 0; i < errors->error_number; i++) {
+        aicad_info("pro_errors[%d] elem_id=%d type=%d error=%d",
+                   i, errors->error_list[i].err_item_id,
+                   (int)errors->error_list[i].err_item_type,
+                   (int)errors->error_list[i].error);
+    }
 }
 
 /* ==================================================================== *\
@@ -578,15 +598,22 @@ static int spec_from_json(JParser *p, int root, CSpec *spec)
     } while (0)
 
 /*---- 矩形截面（沿用 probe_feat.c 已验证实现） ----*/
-static int build_rect_section(ProSection section, double w, double h)
+/* 注意：ProSection2DAlloc 会新建 section，必须传 ProSection* 才能把新句柄交回调用方。
+   按值传 ProSection 时，函数内 ProSection2DAlloc(&section) 写的是局部副本，
+   调用方拿到的仍是旧句柄 —— 本次排查的真实 bug。 */
+static int build_rect_section(ProSection *p_section, double w, double h)
 {
     Pro2dLinedef line;
     int line_id[4];
     ProWSecerror sec_errs;
     ProError e;
+    ProSection section;
 
-    e = ProSection2DAlloc(&section);
-    if (e != PRO_TK_NO_ERROR) { aicad_error("FS206", "ProSection2DAlloc rc=%d", (int)e); return (int)e; }
+    if (*p_section == NULL) {
+        e = ProSection2DAlloc(p_section);
+        if (e != PRO_TK_NO_ERROR) { aicad_error("FS206", "ProSection2DAlloc rc=%d", (int)e); return (int)e; }
+    }
+    section = *p_section;
 
     line.type = PRO_2D_LINE;
     line.end1[0] = 0; line.end1[1] = 0; line.end2[0] = w; line.end2[1] = 0;
@@ -608,7 +635,19 @@ static int build_rect_section(ProSection section, double w, double h)
     return 0;
 }
 
-/*---- 首特征：sketch + extrude（元素树 = UgSktFirstFeatureCreate 结构） ----*/
+/*---- datum 平面按名查找（定义在后，此处前置声明供首特征复用） ----*/
+static int find_datum_plane(ProSolid solid, const char *name, ProModelitem *out);
+
+/*---- 首特征：sketch + extrude ----
+   权威流程 = TestExtrude.c ProTestFirstFeatureCreate + ProTestFeatureSectionInit
+   （incomplete create → extract → sketcher 塞 section → DEFINE_MISS_ELEMS redefine）：
+   1. 输入树极简：FEATURE_TYPE/FIRST_FEAT、FEATURE_FORM/PRO_EXTRUDE、
+      STD_EXT_DEPTH→FROM→FROM_VALUE。没有 section、没有深度 TYPE、没有
+      MATRLSIDE/DIRECTION —— Creo 用默认值补齐。实测教训：在输入树里显式写
+      FROM_BLIND+TO_SYMMETRIC（违反 ProExtrude.h Note 2）会让 redefine 挂起
+      （headless 下 Creo 弹交互 dashboard，无人应答，永久阻塞）。
+   2. 对称拉伸：按 Note 2 加 FROM_TYPE=FROM_NONE + TO{TYPE=SYMMETRIC,VALUE=depth}，
+      官方最小树不支持对称，这是最小扩展。 */
 static int create_first_extrude(ProSolid solid, const CSpec *spec, ProFeature *out_feat)
 {
     ProError e, status;
@@ -617,22 +656,16 @@ static int create_first_extrude(ProSolid solid, const CSpec *spec, ProFeature *o
     ProSelection model_sel;
     ProFeature feature;
     ProFeatureCreateOptions *opts = NULL;
-    ProElempath path;
-    ProElempathItem path_items[2];
-    ProSection section;
-    ProAsmcomppath comp_path;
+    ProSection section = NULL;
 
-    ProElement sketch_element;
-    ProElement created_elemtree;
-    ProElement tree, e_type, e_form;
-    ProElement e_depth, e_from, e_from_type, e_from_val;
-    ProElement e_to, e_to_type, e_to_val;
+    ProElement tree, e_type, e_form, e_depth, e_from, e_from_val;
+    ProElement created_tree = NULL, e_sketcher = NULL;
+    ProElempathItem path_items[1];
+    ProElempath path = NULL;
 
     double depth = spec->extrude.depth;
-    /* symmetric：两侧各 depth/2；one_side：单向 depth（与 probe_feat.c 一致） */
-    double d_from = spec->extrude.symmetric ? depth / 2.0 : depth;
-    double d_to = spec->extrude.symmetric ? depth / 2.0 : 0.0;
 
+    /* 1) 输入树（官方 ProTestFirstFeatureCreate 极简版） */
     CHK(ProElementAlloc(PRO_E_FEATURE_TREE, &tree));
     CHK(ProElementAlloc(PRO_E_FEATURE_TYPE, &e_type));
     CHK(ProElementIntegerSet(e_type, PRO_FEAT_FIRST_FEAT));
@@ -640,74 +673,87 @@ static int create_first_extrude(ProSolid solid, const CSpec *spec, ProFeature *o
     CHK(ProElementAlloc(PRO_E_FEATURE_FORM, &e_form));
     CHK(ProElementIntegerSet(e_form, PRO_EXTRUDE));
     CHK(ProElemtreeElementAdd(tree, NULL, e_form));
-
     CHK(ProElementAlloc(PRO_E_STD_EXT_DEPTH, &e_depth));
     CHK(ProElemtreeElementAdd(tree, NULL, e_depth));
     CHK(ProElementAlloc(PRO_E_EXT_DEPTH_FROM, &e_from));
     CHK(ProElemtreeElementAdd(e_depth, NULL, e_from));
-    CHK(ProElementAlloc(PRO_E_EXT_DEPTH_FROM_TYPE, &e_from_type));
-    CHK(ProElementIntegerSet(e_from_type, PRO_EXT_DEPTH_FROM_BLIND));
-    CHK(ProElemtreeElementAdd(e_from, NULL, e_from_type));
     CHK(ProElementAlloc(PRO_E_EXT_DEPTH_FROM_VALUE, &e_from_val));
     CHK(ProElementDecimalsSet(e_from_val, 4));
-    CHK(ProElementDoubleSet(e_from_val, d_from));
+    CHK(ProElementDoubleSet(e_from_val, depth));
     CHK(ProElemtreeElementAdd(e_from, NULL, e_from_val));
-    CHK(ProElementAlloc(PRO_E_EXT_DEPTH_TO, &e_to));
-    CHK(ProElemtreeElementAdd(e_depth, NULL, e_to));
-    CHK(ProElementAlloc(PRO_E_EXT_DEPTH_TO_TYPE, &e_to_type));
-    CHK(ProElementIntegerSet(e_to_type, PRO_EXT_DEPTH_TO_BLIND));
-    CHK(ProElemtreeElementAdd(e_to, NULL, e_to_type));
-    CHK(ProElementAlloc(PRO_E_EXT_DEPTH_TO_VALUE, &e_to_val));
-    CHK(ProElementDecimalsSet(e_to_val, 4));
-    CHK(ProElementDoubleSet(e_to_val, d_to));
-    CHK(ProElemtreeElementAdd(e_to, NULL, e_to_val));
+
+    if (spec->extrude.symmetric) {
+        /* Note 2：对称 = FROM_NONE + TO{SYMMETRIC, depth}（官方最小树的唯一扩展） */
+        ProElement e_ft, e_to, e_tt, e_tv;
+        CHK(ProElementAlloc(PRO_E_EXT_DEPTH_FROM_TYPE, &e_ft));
+        CHK(ProElementIntegerSet(e_ft, PRO_EXT_DEPTH_FROM_NONE));
+        CHK(ProElemtreeElementAdd(e_from, NULL, e_ft));
+        CHK(ProElementAlloc(PRO_E_EXT_DEPTH_TO, &e_to));
+        CHK(ProElemtreeElementAdd(e_depth, NULL, e_to));
+        CHK(ProElementAlloc(PRO_E_EXT_DEPTH_TO_TYPE, &e_tt));
+        CHK(ProElementIntegerSet(e_tt, PRO_EXT_DEPTH_SYMMETRIC));
+        CHK(ProElemtreeElementAdd(e_to, NULL, e_tt));
+        CHK(ProElementAlloc(PRO_E_EXT_DEPTH_TO_VALUE, &e_tv));
+        CHK(ProElementDecimalsSet(e_tv, 4));
+        CHK(ProElementDoubleSet(e_tv, depth));
+        CHK(ProElemtreeElementAdd(e_to, NULL, e_tv));
+    }
 
     CHK(ProMdlToModelitem((ProMdl)solid, &model_item));
     CHK(ProSelectionAlloc(NULL, &model_item, &model_sel));
 
     e = ProArrayAlloc(1, sizeof(ProFeatureCreateOptions), 1, (ProArray *)&opts);
-    if (e != PRO_TK_NO_ERROR) return (int)e;
+    if (e != PRO_TK_NO_ERROR) { ProElementFree(&tree); return (int)e; }
     opts[0] = PRO_FEAT_CR_INCOMPLETE_FEAT;
 
-    status = ProFeatureWithoptionsCreate(model_sel, tree, opts, PRO_REGEN_NO_FLAGS, &feature, &errors);
+    memset(&errors, 0, sizeof(errors));
+    status = ProFeatureWithoptionsCreate(model_sel, tree, opts, PRO_REGEN_NO_FLAGS,
+                                         &feature, &errors);
     ProArrayFree((ProArray *)&opts);
+    ProElementFree(&tree);
     if (status != PRO_TK_NO_ERROR) {
-        aicad_error("FS206", "ProFeatureWithoptionsCreate（首特征）rc=%d", (int)status);
-        ProElementFree(&tree);
+        aicad_error("FS206", "ProFeatureWithoptionsCreate（首特征 incomplete）rc=%d", (int)status);
+        dump_pro_errors(&errors);
         return (int)status;
     }
+    aicad_info("incomplete 首特征已创建 id=%d", feature.id);
 
-    CHK(ProFeatureElemtreeExtract(&feature, NULL, PRO_FEAT_EXTRACT_NO_OPTS, &created_elemtree));
+    /* 2) extract → sketcher → section（官方 ProTestFeatureSectionInit is_first 分支：
+       首特征的 PRO_E_SKETCHER 在 extracted tree 根级，1 项路径） */
+    CHK(ProFeatureElemtreeExtract(&feature, NULL, PRO_FEAT_EXTRACT_NO_OPTS, &created_tree));
     path_items[0].type = PRO_ELEM_PATH_ITEM_TYPE_ID;
     path_items[0].path_item.elem_id = PRO_E_SKETCHER;
     CHK(ProElempathAlloc(&path));
     CHK(ProElempathDataSet(path, path_items, 1));
-    CHK(ProElemtreeElementGet(created_elemtree, path, &sketch_element));
-
-    memset(&section, 0, sizeof(section));
-    CHK(ProElementSpecialvalueGet(sketch_element, NULL, (ProAppData *)&section));
-
-    if (build_rect_section(section, spec->sketch.w, spec->sketch.h) != 0) {
-        ProElempathFree(&path);
-        ProFeatureElemtreeFree(&feature, created_elemtree);
-        ProElementFree(&tree);
-        return -1;
+    CHK(ProElemtreeElementGet(created_tree, path, &e_sketcher));
+    {
+        ProSection cur = NULL;
+        ProError ge = ProElementSpecialvalueGet(e_sketcher, NULL, (ProAppData *)&cur);
+        aicad_info("sketcher 现有 section: Get rc=%d", (int)ge);
+        /* build_rect_section 在 *p_section==NULL 时自建，否则往现有 section 里画矩形 */
+        section = (ge == PRO_TK_NO_ERROR) ? cur : NULL;
+        if (build_rect_section(&section, spec->sketch.w, spec->sketch.h) != 0) {
+            ProElempathFree(&path);
+            ProFeatureElemtreeFree(&feature, created_tree);
+            return -1;
+        }
+        CHK(ProElementSpecialvalueSet(e_sketcher, (ProAppData)section));
     }
-    CHK(ProElementSpecialvalueSet(sketch_element, (ProAppData)section));
     ProElempathFree(&path);
+    path = NULL;
 
-    CHK(ProSelectionAsmcomppathGet(model_sel, &comp_path));
+    /* 3) redefine（官方：DEFINE_MISS_ELEMS + Part 模式 NULL comp_path，单次尝试） */
     e = ProArrayAlloc(1, sizeof(ProFeatureCreateOptions), 1, (ProArray *)&opts);
-    if (e != PRO_TK_NO_ERROR) return (int)e;
+    if (e != PRO_TK_NO_ERROR) { ProFeatureElemtreeFree(&feature, created_tree); return (int)e; }
     opts[0] = PRO_FEAT_CR_DEFINE_MISS_ELEMS;
-    status = ProFeatureWithoptionsRedefine(&comp_path, &feature, created_elemtree, opts,
+    memset(&errors, 0, sizeof(errors));
+    status = ProFeatureWithoptionsRedefine(NULL, &feature, created_tree, opts,
                                            PRO_REGEN_NO_FLAGS, &errors);
     ProArrayFree((ProArray *)&opts);
-    ProFeatureElemtreeFree(&feature, created_elemtree);
-    ProElementFree(&tree);
-
+    ProFeatureElemtreeFree(&feature, created_tree);
     if (status != PRO_TK_NO_ERROR) {
         aicad_error("FS206", "ProFeatureWithoptionsRedefine（首特征）rc=%d", (int)status);
+        dump_pro_errors(&errors);
         return (int)status;
     }
 
@@ -731,7 +777,7 @@ static ProError face_filter(ProSurface s, ProAppData data)
     (void)data;
     ProGeomitemdata *gd = NULL;
     if (ProSurfaceDataGet(s, &gd) != PRO_TK_NO_ERROR || !gd ||
-        gd->obj_type != PRO_SURFACE || PRO_SURF_DATA(gd) == NULL)
+        gd->obj_type != PRO_SURFACE || (PRO_SURF_DATA(gd)) == NULL)
         return PRO_TK_CONTINUE;
     ProSurfacedata *sd = PRO_SURF_DATA(gd);
     ProError rc = (sd->type == PRO_SRF_PLANE) ? PRO_TK_NO_ERROR : PRO_TK_CONTINUE;
@@ -745,7 +791,7 @@ static ProError face_action(ProSurface s, ProError status, ProAppData data)
     FaceCtx *ctx = (FaceCtx *)data;
     ProGeomitemdata *gd = NULL;
     if (ProSurfaceDataGet(s, &gd) != PRO_TK_NO_ERROR || !gd ||
-        gd->obj_type != PRO_SURFACE || PRO_SURF_DATA(gd) == NULL)
+        gd->obj_type != PRO_SURFACE || (PRO_SURF_DATA(gd)) == NULL)
         return PRO_TK_NO_ERROR;
     ProSurfacedata *sd = PRO_SURF_DATA(gd);
     if (sd->type == PRO_SRF_PLANE) {
@@ -792,6 +838,89 @@ static int find_datum_plane(ProSolid solid, const char *name, ProModelitem *out)
         aicad_error("FS204", "名为 %s 的特征不是 datum（type=%d）", name, (int)ftype);
         return -1;
     }
+    return 0;
+}
+
+/*---- 默认基准：CSYS + TOP/FRONT/RIGHT -------------------------------
+   ProSolidMdlnameCreate 产出的是空零件（无 CSYS、无基准面），而首特征
+   sketch@TOP 与孔的线性放置参考都要求这些基准存在。做法照官方示例
+   TestDtmPln.c：先建 PRO_CSYS_DEFAULT 坐标系，再用 PRO_DTMPLN_DEF_X/Y/Z
+   建三个正交基准面（无需参考几何，故 headless 可用）。
+   ponytail: 三平面固定建在源点、轴向按 DEF_* 默认方向；不做偏移/角度，
+   需要非零偏移时升级为 PRO_DTMPLN_OFFS + PRO_E_DTMPLN_CONSTR_REF_OFFSET。
+-------------------------------------------------------------------*/
+static int create_default_datums(ProSolid solid)
+{
+    static const struct { int constr; const char *name; } PLANES[3] = {
+        { PRO_DTMPLN_DEF_X, "RIGHT" },
+        { PRO_DTMPLN_DEF_Y, "FRONT" },
+        { PRO_DTMPLN_DEF_Z, "TOP"   },
+    };
+    ProError e, status;
+    ProErrorlist errors;
+    ProModelitem model_item;
+    ProSelection model_sel;
+    ProFeatureCreateOptions *opts = NULL;
+    ProFeature feature;
+
+    /* 1) 默认坐标系（官方示例中它是基准面的前置条件） */
+    {
+        ProElement tree, e_type, e_method;
+        CHK(ProElementAlloc(PRO_E_FEATURE_TREE, &tree));
+        CHK(ProElementAlloc(PRO_E_FEATURE_TYPE, &e_type));
+        CHK(ProElementIntegerSet(e_type, PRO_FEAT_CSYS));
+        CHK(ProElemtreeElementAdd(tree, NULL, e_type));
+        CHK(ProElementAlloc(PRO_E_CSYS_METHOD, &e_method));
+        CHK(ProElementIntegerSet(e_method, PRO_CSYS_DEFAULT));
+        CHK(ProElemtreeElementAdd(tree, NULL, e_method));
+        CHK(ProMdlToModelitem((ProMdl)solid, &model_item));
+        CHK(ProSelectionAlloc(NULL, &model_item, &model_sel));
+        e = ProArrayAlloc(1, sizeof(ProFeatureCreateOptions), 1, (ProArray *)&opts);
+        if (e != PRO_TK_NO_ERROR) return (int)e;
+        opts[0] = PRO_FEAT_CR_NO_OPTS;
+        status = ProFeatureWithoptionsCreate(model_sel, tree, opts, PRO_REGEN_NO_FLAGS,
+                                             &feature, &errors);
+        ProArrayFree((ProArray *)&opts);
+        ProElementFree(&tree);
+        if (status != PRO_TK_NO_ERROR) {
+            aicad_error("FS206", "ProFeatureWithoptionsCreate（默认 CSYS）rc=%d", (int)status);
+            return (int)status;
+        }
+    }
+
+    /* 2) 三个基准面，按名命名（TOP/FRONT/RIGHT） */
+    for (int i = 0; i < 3; i++) {
+        ProElement tree, e_type, e_consts, e_const, e_ctype;
+        ProName wname;
+        CHK(ProElementAlloc(PRO_E_FEATURE_TREE, &tree));
+        CHK(ProElementAlloc(PRO_E_FEATURE_TYPE, &e_type));
+        CHK(ProElementIntegerSet(e_type, PRO_FEAT_DATUM));
+        CHK(ProElemtreeElementAdd(tree, NULL, e_type));
+        CHK(ProElementAlloc(PRO_E_DTMPLN_CONSTRAINTS, &e_consts));
+        CHK(ProElemtreeElementAdd(tree, NULL, e_consts));
+        CHK(ProElementAlloc(PRO_E_DTMPLN_CONSTRAINT, &e_const));
+        CHK(ProElemtreeElementAdd(e_consts, NULL, e_const));
+        CHK(ProElementAlloc(PRO_E_DTMPLN_CONSTR_TYPE, &e_ctype));
+        CHK(ProElementIntegerSet(e_ctype, PLANES[i].constr));
+        CHK(ProElemtreeElementAdd(e_const, NULL, e_ctype));
+        CHK(ProMdlToModelitem((ProMdl)solid, &model_item));
+        CHK(ProSelectionAlloc(NULL, &model_item, &model_sel));
+        e = ProArrayAlloc(1, sizeof(ProFeatureCreateOptions), 1, (ProArray *)&opts);
+        if (e != PRO_TK_NO_ERROR) return (int)e;
+        opts[0] = PRO_FEAT_CR_NO_OPTS;
+        status = ProFeatureWithoptionsCreate(model_sel, tree, opts, PRO_REGEN_NO_FLAGS,
+                                             &feature, &errors);
+        ProArrayFree((ProArray *)&opts);
+        ProElementFree(&tree);
+        if (status != PRO_TK_NO_ERROR) {
+            aicad_error("FS206", "ProFeatureWithoptionsCreate（基准面 %s）rc=%d",
+                        PLANES[i].name, (int)status);
+            return (int)status;
+        }
+        ProStringToWstring(wname, (char *)PLANES[i].name);
+        ProModelitemNameSet((ProModelitem *)&feature, wname);
+    }
+    aicad_info("默认基准已创建：CSYS + RIGHT/FRONT/TOP");
     return 0;
 }
 
@@ -903,6 +1032,7 @@ static int create_one_hole(ProSolid solid, const CHole *h, double cx, double cy)
     ProElementFree(&tree);
     if (status != PRO_TK_NO_ERROR) {
         aicad_error("FS206", "ProFeatureWithoptionsCreate（hole %s）rc=%d", h->id, (int)status);
+        dump_pro_errors(&errors);
         return (int)status;
     }
     aicad_map("%s -> ProFeature id=%d（dia=%g @ %.2f,%.2f）", h->id, feature.id, h->dia, cx, cy);
@@ -918,17 +1048,43 @@ static ProError count_feature(ProFeature *f, ProError st, ProAppData data)
 }
 
 typedef struct {
-    int total, datums;
+    int total, datums, csys;
 } DumpCtx;
 
 static ProError dump_feature(ProFeature *f, ProError st, ProAppData data)
 {
     DumpCtx *ctx = (DumpCtx *)data;
+    ProFeattype ftype = (ProFeattype)0;
     if (st != PRO_TK_NO_ERROR) return PRO_TK_NO_ERROR;
     ctx->total++;
-    if ((int)f->type == PRO_FEAT_DATUM) ctx->datums++;
-    aicad_info("tree: id=%-4d type=%d", f->id, (int)f->type);
+    /* ProFeature.type 是内部位掩码（打印恒为 3），真实类型须用 ProFeatureTypeGet */
+    if (ProFeatureTypeGet(f, &ftype) != PRO_TK_NO_ERROR) ftype = (ProFeattype)f->type;
+    if (ftype == (ProFeattype)PRO_FEAT_DATUM) ctx->datums++;
+    if (ftype == (ProFeattype)PRO_FEAT_CSYS) ctx->csys++;
+    aicad_info("tree: id=%-4d type=%d", f->id, (int)ftype);
     return PRO_TK_NO_ERROR;
+}
+
+/*---- 会话零件清空 ------------------------------------------------------
+   常驻 rpc_input 会话跨次运行会残留同名模型（Creo 还会自动加 0001 后缀），
+   ProSolidMdlnameCreate 因此返回 PRO_TK_E_FOUND(-5)。无界面构建会话每次
+   构建都从干净会话开始，故先擦除会话内全部零件。
+-------------------------------------------------------------------*/
+static int erase_session_parts(void)
+{
+    ProMdl *list = NULL;
+    int n = 0, erased = 0;
+    if (ProSessionMdlList(PRO_MDL_PART, &list, &n) != PRO_TK_NO_ERROR)
+        return 0;
+    for (int i = 0; i < n; i++) {
+        ProName nm;
+        if (ProMdlNameGet(list[i], nm) == PRO_TK_NO_ERROR)
+            aicad_info("  擦除会话残留零件：%ls", nm);
+        ProMdlErase(list[i]);
+        erased++;
+    }
+    ProArrayFree((ProArray *)&list);
+    return erased;
 }
 
 /* ==================================================================== *\
@@ -956,6 +1112,9 @@ int main(int argc, char *argv[])
     int rc = 0;
 
     memset(&handle, 0, sizeof(handle));
+    /* 无缓冲 stdout：headless 会话里 Creo 会 EXCEPTION_ACCESS_VIOLATION，
+       缓冲日志会随之丢失，排障必须看到崩溃前的最后几行。 */
+    setvbuf(stdout, NULL, _IONBF, 0);
     if (argc >= 2) spec_path = argv[1];
     if (argc >= 3) text_dir = argv[2];
     if (!spec_path) {
@@ -1002,32 +1161,28 @@ int main(int argc, char *argv[])
                spec.extrude.symmetric ? "symmetric" : "one_side",
                spec.n_holes, spec.n_edits);
 
-    /* 3. 连接无界面 Creo（与 probe_feat.c 相同的多形态尝试） ---------------- */
-    e = ProEngineerConnect((char *)"", (char *)"", (char *)"", (char *)text_dir,
-                           PRO_B_FALSE, 120, &random, &handle);
-    if (e != PRO_TK_NO_ERROR)
-        e = ProEngineerConnect((char *)"", NULL, NULL, (char *)text_dir,
-                               PRO_B_TRUE, 120, &random, &handle);
-    if (e != PRO_TK_NO_ERROR)
-        e = ProEngineerConnect(NULL, NULL, NULL, (char *)text_dir,
-                               PRO_B_TRUE, 120, &random, &handle);
-    if (e != PRO_TK_NO_ERROR) {
-        /* 混合模式兜底：OTK 建连接通道（已验证可连 rpc_input 会话），
-         * 本进程内继续用 C Toolkit 函数干活（otk_bridge.cpp）。 */
-        if (aicad_bridge_connect(text_dir) == 0) {
-            g_bridge = 1;
-            aicad_info("C API 直连失败（rc=%d），已改用 OTK 混合模式连接", (int)e);
-        } else {
-            aicad_error("FS209", "ProEngineerConnect 全部形态失败 rc=%d，OTK 桥也未连上", (int)e);
-            return 3;
-        }
+    /* 3. 连接无界面 Creo ----------------------------------------------------
+       实测（本机 Creo 12.4.0.0）：C API ProEngineerConnect 对
+       `-g:no_graphics -i:rpc_input` 会话恒返回 -4（PRO_TK_E_NOT_FOUND），
+       与 native/r1_otk/README.md 记录一致；且传 NULL 作 session_id 的形态会
+       让进程异常退出。故走文档既定的混合模式（ROADMAP P1）：
+       OTK pfcAsyncConnection::Connect 建会话通道（R1 已验证可连 rpc_input），
+       本进程继续用 C Toolkit 建特征（otk_bridge.cpp）。 */
+    if (aicad_bridge_connect(text_dir) == 0) {
+        g_bridge = 1;
+        aicad_info("已连接无界面 Creo（OTK 混合模式）");
     } else {
-        aicad_info("已连接无界面 Creo（C API 直连）");
+        aicad_error("FS209", "OTK 桥连接失败（C API 对 rpc_input 恒为 -4，见 r1_otk/README.md）");
+        return 3;
     }
 
     /* 4. 建零件 ------------------------------------------------------------ */
     ProStringToWstring(part_name, spec.model);
     e = ProSolidMdlnameCreate(part_name, PRO_MDLFILE_PART, &solid);
+    if (e == PRO_TK_E_FOUND) {
+        erase_session_parts(); /* 常驻会话残留同名模型：清空后重建 */
+        e = ProSolidMdlnameCreate(part_name, PRO_MDLFILE_PART, &solid);
+    }
     if (e != PRO_TK_NO_ERROR) {
         aicad_error("FS206", "ProSolidMdlnameCreate(%s) rc=%d", spec.model, (int)e);
         if (g_bridge) aicad_bridge_disconnect(30);
@@ -1035,6 +1190,19 @@ int main(int argc, char *argv[])
         return 5;
     }
     aicad_info("零件已创建：%s.prt", spec.model);
+
+    /* 4b. 默认基准（空零件无 CSYS/基准面，首特征与孔放置都依赖它们） -------- */
+    if (create_default_datums(solid) != 0) {
+        if (g_bridge) aicad_bridge_disconnect(30);
+        else ProEngineerDisconnect(&handle, 30);
+        return 5;
+    }
+    {
+        DumpCtx dc;
+        memset(&dc, 0, sizeof(dc));
+        ProSolidFeatVisit(solid, dump_feature, NULL, (ProAppData)&dc);
+        aicad_info("基准创建后特征数=%d（datum=%d）", dc.total, dc.datums);
+    }
 
     /* 5. 首特征 sketch+extrude --------------------------------------------- */
     if (create_first_extrude(solid, &spec, &feat) != 0) {
@@ -1079,16 +1247,36 @@ int main(int argc, char *argv[])
             rc = 7;
         }
     }
+    /* 几何自检（regen 之后体积才可取）：体积 = 草绘面积 x 深度。
+       若对称深度被当成"半深"，体积会翻倍 —— 这是拉伸语义唯一的静默失效点。 */
+    if (rc == 0) {
+        ProMassProperty mass;
+        double expect = spec.sketch.w * spec.sketch.h * spec.extrude.depth;
+        memset(&mass, 0, sizeof(mass));
+        e = ProSolidMassPropertyGet(solid, NULL, &mass);
+        if (e != PRO_TK_NO_ERROR) {
+            aicad_error("FS207", "ProSolidMassPropertyGet rc=%d", (int)e);
+            rc = 7;
+        } else {
+            aicad_info("体积 %.3f（期望 %.3f = %.0f x %.0f x %.3f）",
+                       mass.volume, expect, spec.sketch.w, spec.sketch.h, spec.extrude.depth);
+            if (expect > 0.0 && fabs(mass.volume - expect) / expect > 0.01) {
+                aicad_error("FS207", "拉伸深度几何不符：体积 %.3f，期望 %.3f",
+                            mass.volume, expect);
+                rc = 8;
+            }
+        }
+    }
     if (rc == 0) {
         DumpCtx ctx;
         memset(&ctx, 0, sizeof(ctx));
         ProSolidFeatVisit(solid, dump_feature, NULL, (ProAppData)&ctx);
-        int solid_feats = ctx.total - ctx.datums; /* 不计模板基准面 */
+        int solid_feats = ctx.total - ctx.datums - ctx.csys; /* 不计基准面/坐标系 */
         int expected = 1;                          /* 首特征对算 1 个 ProFeature */
         for (int hi = 0; hi < spec.n_holes; hi++)
             expected += (spec.holes[hi].has_pattern ? spec.holes[hi].pat_n[0] * spec.holes[hi].pat_n[1] : 1);
-        aicad_info("特征树校验：实体特征 %d（另有 datum %d），预期 %d",
-                   solid_feats, ctx.datums, expected);
+        aicad_info("特征树校验：实体特征 %d（另有 datum %d, csys %d），预期 %d",
+                   solid_feats, ctx.datums, ctx.csys, expected);
         if (solid_feats != expected) {
             aicad_error("FS214", "特征树与 FeatureSpec 不一致：实际 %d，预期 %d（G1/G3 验收点）",
                         solid_feats, expected);
